@@ -1,66 +1,74 @@
-import static org.mockito.Mockito.*;
-import static org.junit.jupiter.api.Assertions.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.springframework.dao.DataAccessException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+@RequiredArgsConstructor
+public class JsonMapper {
+    
+    private final ObjectMapper objectMapper;
+    
+    public Map<String, Map<String, Object>> mapFields(JsonNode sourceJson, List<Mapping> mappings) {
+        Map<String, Map<String, Object>> result = new HashMap<>();
 
-public class ClineDataMappingEventServiceTest {
-
-    @InjectMocks
-    private ClineDataMappingEventService clineDataMappingEventService;
-
-    @Mock
-    private DataMappingOutboxRepository dataMappingOutboxRepository;
-
-    @Mock
-    private DataReceivedToInboxRepository dataMappingInboxRepository;
-
-    @Mock
-    private Logger log;
-
-    @BeforeEach
-    public void setUp() {
-        MockitoAnnotations.openMocks(this);
+        for (Mapping mapping : mappings) {
+            // Get the value from the source JSON using the externalId (dotted path)
+            String externalId = mapping.getExternalId();
+            JsonNode valueNode = getValueFromJsonByPath(sourceJson, externalId);
+            
+            if (valueNode != null && !valueNode.isMissingNode()) {
+                // Prepare the result with sectionCode and fieldName
+                result.computeIfAbsent(mapping.getSectionCode(), k -> new HashMap<>())
+                        .put(mapping.getFieldName(), valueNode.asText());
+            }
+        }
+        
+        return result;
     }
+    
+    private JsonNode getValueFromJsonByPath(JsonNode jsonNode, String path) {
+        String[] pathParts = path.split("\\.");
+        JsonNode currentNode = jsonNode;
 
-    @Test
-    public void testProcessExpiryDataOutboxEvent_Success() {
-        DataReceivedInbox dataReceivedInbox = new DataReceivedInbox();
-        dataReceivedInbox.setConstructionlineReferenceNumber("1234");
-
-        // Call the method under test
-        clineDataMappingEventService.processExpiryDataOutboxEvent(dataReceivedInbox);
-
-        // Verify that logging was done
-        verify(log).info("Processing calculated expiry data event received: {}", dataReceivedInbox);
-        verify(log).info("Message has been saved to process expiry data outbox for buyerId: {}", "1234");
-
-        // You can also verify interactions with repositories if needed
-        // Example: verify(dataMappingOutboxRepository).save(any());
-    }
-
-    @Test
-    public void testProcessExpiryDataOutboxEvent_DataAccessException() {
-        DataReceivedInbox dataReceivedInbox = new DataReceivedInbox();
-        dataReceivedInbox.setConstructionlineReferenceNumber("1234");
-
-        // Simulate DataAccessException
-        doThrow(new DataAccessException("Database error") {})
-            .when(dataMappingOutboxRepository).save(any());
-
-        // Expect the method to throw a DataAccessException after retries
-        assertThrows(DataAccessException.class, () -> {
-            clineDataMappingEventService.processExpiryDataOutboxEvent(dataReceivedInbox);
-        });
-
-        // Verify logging of the error
-        verify(log).error(anyString(), any(DataAccessException.class));
+        for (String part : pathParts) {
+            currentNode = currentNode.path(part);
+            if (currentNode.isMissingNode()) {
+                break;
+            }
+        }
+        return currentNode;
     }
 }
 
+
+
+...........................................................
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+
+import java.io.IOException;
+import java.util.Map;
+
+@RequiredArgsConstructor
+public class MappingService {
+
+    private final ObjectMapper objectMapper;
+    private final JsonMapper jsonMapper;
+
+    public String processMapping(String sourceJsonString, String mappingJsonString) throws IOException {
+        // Parse the source and mappings JSON
+        JsonNode sourceJson = objectMapper.readTree(sourceJsonString);
+        MappingConfig mappingConfig = objectMapper.readValue(mappingJsonString, MappingConfig.class);
+
+        // Map fields based on the mappings
+        Map<String, Map<String, Object>> result = jsonMapper.mapFields(sourceJson, mappingConfig.getMAPPINGS());
+
+        // Convert the result back to JSON
+        return objectMapper.writeValueAsString(result);
+    }
+}
+............................................................................
