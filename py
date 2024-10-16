@@ -72,3 +72,70 @@ public class MappingService {
     }
 }
 ............................................................................
+
+
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@RequiredArgsConstructor
+public class JsonMapper {
+    
+    private final ObjectMapper objectMapper;
+    
+    /**
+     * Maps fields from the sourceJson based on the provided list of mappings.
+     * 
+     * @param sourceJson - The source JSON from which data needs to be mapped.
+     * @param mappings - List of mappings that define how to extract and map the data.
+     * @return A map where keys are section codes and values are maps of field names and their corresponding values.
+     */
+    public Map<String, Map<String, Object>> mapFields(JsonNode sourceJson, List<Mapping> mappings) {
+        // The result will be a Map where sectionCode is the key and another map of fieldName to value is the value.
+        Map<String, Map<String, Object>> result = new HashMap<>();
+
+        // Loop through each mapping
+        for (Mapping mapping : mappings) {
+            // Get the externalId path from the mapping (e.g., "MainDetails.RegistrationNumber")
+            String externalId = mapping.getExternalId();
+            
+            // Use the helper function to retrieve the value from the source JSON based on the externalId path
+            JsonNode valueNode = getValueFromJsonByPath(sourceJson, externalId);
+            
+            if (valueNode != null && !valueNode.isMissingNode()) {
+                // If the value is found, add it to the result map under the appropriate sectionCode and fieldName
+                result.computeIfAbsent(mapping.getSectionCode(), k -> new HashMap<>())
+                      .put(mapping.getFieldName(), valueNode.asText()); // Store the value in the result map
+            }
+        }
+        
+        return result; // Return the final mapped output
+    }
+    
+    /**
+     * Helper method to retrieve a value from the source JSON using a dot-separated path.
+     * 
+     * @param jsonNode - The root JSON node (source).
+     * @param path - The dot-separated path to the target field (e.g., "MainDetails.RegistrationNumber").
+     * @return The JsonNode representing the value at the specified path, or null if not found.
+     */
+    private JsonNode getValueFromJsonByPath(JsonNode jsonNode, String path) {
+        String[] pathParts = path.split("\\."); // Split the path into individual keys by the dot character
+        JsonNode currentNode = jsonNode;
+
+        // Iterate through each part of the path
+        for (String part : pathParts) {
+            currentNode = currentNode.path(part); // Traverse down the JSON structure
+            if (currentNode.isMissingNode()) {
+                break; // If the node is missing at any point, break the loop
+            }
+        }
+        return currentNode; // Return the found node or missing node
+    }
+}
+
